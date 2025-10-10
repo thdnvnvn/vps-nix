@@ -1,2 +1,2 @@
 # vps
-free vps (no 24/7)
+free vps by firebase (no 24/7)
