@@ -32,8 +32,6 @@
       # Create the container if missing; otherwise start it
       if ! docker ps -a --format '{{.Names}}' | grep -qx 'ubuntu-novnc'; then
         docker run --name ubuntu-novnc \
-          --cpus="96" \
-          --memory="36g" \
           --shm-size 1g -d \
           --cap-add=SYS_ADMIN \
           -p 8080:10000 \
