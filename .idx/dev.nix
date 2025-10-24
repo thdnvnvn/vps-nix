@@ -8,87 +8,102 @@
     pkgs.coreutils
     pkgs.gnugrep
     pkgs.sudo
-    pkgs.apt
-    pkgs.docker
-    pkgs.systemd
     pkgs.unzip
+    pkgs.apt
+    pkgs.systemd
   ];
 
   services.docker.enable = true;
 
   idx.workspace.onStart = {
-    novnc = ''
+    gnomegui = ''
       set -e
 
-      # One-time cleanup
+      echo "[✅] Starting GNOME GUI environment via Docker + noVNC..."
+
+      # Cleanup (chỉ làm lần đầu)
       if [ ! -f /home/user/.cleanup_done ]; then
-        rm -rf /home/user/.gradle/* /home/user/.emu/*
-        find /home/user -mindepth 1 -maxdepth 1 ! -name 'idx-ubuntu22-gui' ! -name '.*' -exec rm -rf {} +
+        rm -rf /home/user/.gradle/* /home/user/.emu/* || true
+        find /home/user -mindepth 1 -maxdepth 1 ! -name 'idx-ubuntu22-gui' ! -name '.*' -exec rm -rf {} + || true
         touch /home/user/.cleanup_done
       fi
 
-      
-
-      # Create the container if missing; otherwise start it
-      if ! docker ps -a --format '{{.Names}}' | grep -qx 'ubuntu-novnc'; then
-        docker run --name ubuntu-novnc \
+      # Tạo container nếu chưa có
+      if ! docker ps -a --format '{{.Names}}' | grep -qx 'ubuntu-gnome-novnc'; then
+        docker run --name ubuntu-gnome-novnc \
           --shm-size 1g -d \
           --cap-add=SYS_ADMIN \
+          --restart unless-stopped \
           -p 8080:10000 \
           -e VNC_PASSWD=12345678 \
           -e PORT=10000 \
-          -e AUDIO_PORT=1699 \
-          -e WEBSOCKIFY_PORT=6900 \
-          -e VNC_PORT=5900 \
-          -e SCREEN_WIDTH=1024 \
-          -e SCREEN_HEIGHT=768 \
+          -e SCREEN_WIDTH=1280 \
+          -e SCREEN_HEIGHT=800 \
           -e SCREEN_DEPTH=24 \
-          thuonghai2711/ubuntu-novnc-pulseaudio:22.04
+          thuonghai2711/ubuntu-gnome-novnc:22.04 || (
+            echo "⚠️ Không tìm thấy image ubuntu-gnome-novnc, đang tạo tạm từ ubuntu:22.04..."
+            docker run --name ubuntu-gnome-novnc \
+              -d --shm-size=1g --cap-add=SYS_ADMIN \
+              -p 8080:10000 \
+              ubuntu:22.04 sleep infinity
+            docker exec ubuntu-gnome-novnc bash -lc '
+              apt update &&
+              DEBIAN_FRONTEND=noninteractive apt install -y gnome-session gdm3 tigervnc-standalone-server websockify novnc dbus-x11 pulseaudio wget sudo &&
+              mkdir -p /root/.vnc &&
+              echo 12345678 | vncpasswd -f > /root/.vnc/passwd &&
+              chmod 600 /root/.vnc/passwd &&
+              echo "vncserver -geometry 1280x800 -depth 24 -SecurityTypes None :1" > /usr/local/bin/startvnc &&
+              chmod +x /usr/local/bin/startvnc
+            '
+          )
       else
-        docker start ubuntu-novnc || true
+        docker start ubuntu-gnome-novnc || true
       fi
 
-      # Install Chrome inside the container (sudo only here)
-      docker exec -it ubuntu-novnc bash -lc "
-        sudo apt update &&
-        sudo apt remove -y firefox || true &&
-        sudo apt install -y wget &&
-        sudo wget -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb &&
-        sudo apt install -y /tmp/chrome.deb &&
-        sudo rm -f /tmp/chrome.deb
-      "
+      # Cài Chrome trong container
+      docker exec ubuntu-gnome-novnc bash -lc '
+        apt update -y &&
+        apt install -y wget gnupg ca-certificates sudo &&
+        wget -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb &&
+        apt install -y /tmp/chrome.deb || apt -f install -y &&
+        rm -f /tmp/chrome.deb
+      '
 
-      # Run cloudflared in background, capture logs
-      nohup cloudflared tunnel --no-autoupdate --url http://localhost:8080 \
-        > /tmp/cloudflared.log 2>&1 &
+      # Chạy GNOME + VNC + noVNC
+      docker exec -d ubuntu-gnome-novnc bash -lc '
+        export DISPLAY=:1
+        dbus-launch --exit-with-session gnome-session &
+        vncserver -geometry 1280x800 -depth 24 -SecurityTypes None :1
+        websockify --web=/usr/share/novnc 10000 localhost:5901 &
+      '
 
-      # Give it 10s to start
+      # Chạy cloudflared (public tunnel)
+      nohup cloudflared tunnel --no-autoupdate --url http://localhost:8080 > /tmp/cloudflared.log 2>&1 &
+
       sleep 10
-
-      # Extract tunnel URL from logs
-      if grep -q "trycloudflare.com" /tmp/cloudflared.log; then
-        URL=$(grep -o "https://[a-z0-9.-]*trycloudflare.com" /tmp/cloudflared.log | head -n1)
+      URL=$(grep -Eo "https://[a-z0-9.-]*trycloudflare.com" /tmp/cloudflared.log | head -n1 || true)
+      if [ -n "$URL" ]; then
         echo "========================================="
-        echo " 🌍 Your Cloudflared tunnel is ready:"
+        echo " 🌍 GNOME GUI qua Cloudflared đã sẵn sàng:"
         echo "     $URL"
         echo "========================================="
       else
-        echo "❌ Cloudflared tunnel failed, check /tmp/cloudflared.log"
+        echo "❌ Không tìm thấy URL tunnel, kiểm tra /tmp/cloudflared.log"
+        tail -n 40 /tmp/cloudflared.log || true
       fi
 
-      elapsed=0; while true; do echo "Time elapsed: $elapsed min"; ((elapsed++)); sleep 60; done
-
+      elapsed=0; while true; do echo "⏳ Đã chạy $elapsed phút"; ((elapsed++)); sleep 60; done
     '';
   };
 
   idx.previews = {
     enable = true;
     previews = {
-      novnc = {
+      gnomegui = {
         manager = "web";
         command = [
           "bash" "-lc"
-          "socat TCP-LISTEN:$PORT,fork,reuseaddr TCP:127.0.0.1:8080"
+          "socat TCP-LISTEN:8080,fork,reuseaddr TCP:127.0.0.1:8080"
         ];
       };
     };
