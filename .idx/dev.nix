@@ -18,51 +18,45 @@ idx.workspace.onStart = {
 windows = ''
 set -e
 
-  mkdir -p ~/vps
-  cd ~/vps
+  mkdir -p /mnt/windows
 
-  # Pull Windows container
-  if ! docker ps -a --format '{{.Names}}' | grep -qx 'windows-vm'; then
-    docker pull dockurr/windows
+  # tải image
+  docker pull dockurr/windows
 
-    docker run -d \
-      --name windows-vm \
-      --device /dev/kvm \
-      -p 8006:8006 \
-      -e VERSION=win11 \
-      -e RAM_SIZE=16G \
-      -e CPU_CORES=8 \
-      dockurr/windows
-  else
-    docker start windows-vm || true
-  fi
+  # chạy Windows VM
+  docker run -d \
+    --name windows-vm \
+    --device /dev/kvm \
+    -p 8006:8006 \
+    -e VERSION=win10 \
+    -e RAM_SIZE=16G \
+    -e CPU_CORES=8 \
+    -v /mnt/windows:/storage \
+    dockurr/windows
 
-  # Wait until Windows web panel is ready
-  while ! nc -z localhost 8006; do sleep 2; done
+  # đợi web panel
+  while ! nc -z localhost 8006; do
+    sleep 3
+  done
 
-  # Start Cloudflare tunnel
+  # tạo cloudflare tunnel
   nohup cloudflared tunnel --no-autoupdate --url http://localhost:8006 \
     > /tmp/cloudflared.log 2>&1 &
 
   sleep 10
 
   URL=""
-  for i in {1..15}; do
+  for i in {1..20}; do
     URL=$(grep -o "https://[a-z0-9.-]*trycloudflare.com" /tmp/cloudflared.log | head -n1)
     if [ -n "$URL" ]; then break; fi
     sleep 1
   done
 
-  if [ -n "$URL" ]; then
-    echo "========================================="
-    echo "🌍 Windows VPS ready:"
-    echo "$URL"
-    echo "========================================="
-  else
-    echo "❌ Cloudflare tunnel failed"
-  fi
+  echo "==============================="
+  echo "🌍 Windows VPS:"
+  echo "$URL"
+  echo "==============================="
 
-  # Keep running
   while true; do sleep 60; done
 '';
 
