@@ -30,14 +30,14 @@
 
       # pull container
       if ! docker ps -a --format '{{.Names}}' | grep -qx 'ubuntu-gnome'; then
-        docker pull accetto/ubuntu-vnc-xfce-g3:ubuntu-vnc-gnome
+        docker pull cannycomputing/dockerfile-ubuntu-gnome
 
         docker run -d \
           --name ubuntu-gnome \
           -p 10000:6901 \
           -e VNC_PW=12345678 \
           -e VNC_RESOLUTION=1280x800 \
-          accetto/ubuntu-vnc-xfce-g3:ubuntu-vnc-gnome
+          cannycomputing/dockerfile-ubuntu-gnome
       else
         docker start ubuntu-gnome || true
       fi
