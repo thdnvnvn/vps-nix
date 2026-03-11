@@ -16,7 +16,7 @@
   services.docker.enable = true;
 
   idx.workspace.onStart = {
-    novnc = ''
+    android = ''
       set -e
 
       mkdir -p ~/vps
@@ -28,38 +28,32 @@
         touch /home/user/.cleanup_done
       fi
 
-      # pull container
-      if ! docker ps -a --format '{{.Names}}' | grep -qx 'ubuntu-gnome'; then
-        docker pull cannycomputing/dockerfile-ubuntu-gnome
+      # pull android container
+      if ! docker ps -a --format '{{.Names}}' | grep -qx 'android'; then
+        docker pull budtmo/docker-android:emulator_14.0
 
         docker run -d \
-          --name ubuntu-gnome \
-          -p 10000:6901 \
-          -e VNC_PW=12345678 \
-          -e VNC_RESOLUTION=1280x800 \
-          cannycomputing/dockerfile-ubuntu-gnome
+          --name android \
+          --device /dev/kvm \
+          -p 6080:6080 \
+          -p 5554:5554 \
+          -p 5555:5555 \
+          -e DEVICE="Samsung Galaxy S10" \
+          budtmo/docker-android:emulator_14.0
+
       else
-        docker start ubuntu-gnome || true
+        docker start android || true
       fi
 
-      # chờ novnc
-      while ! nc -z localhost 10000; do
-        sleep 1
+      # chờ web vnc
+      while ! nc -z localhost 6080; do
+        sleep 2
       done
-
-      # cài chrome
-      docker exec ubuntu-gnome bash -lc "
-        sudo apt update
-        sudo apt install -y wget
-        wget -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-        sudo apt install -y /tmp/chrome.deb
-        rm -f /tmp/chrome.deb
-      "
 
       # chạy cloudflare tunnel
       nohup cloudflared tunnel \
         --no-autoupdate \
-        --url http://localhost:10000 \
+        --url http://localhost:6080 \
         > /tmp/cloudflared.log 2>&1 &
 
       sleep 8
@@ -73,19 +67,17 @@
       done
 
       if [ -n "$URL" ]; then
-        echo "======================================"
-        echo "🌍 LINK VPS:"
+        echo "================================="
+        echo "📱 Android Emulator đang chạy:"
         echo "$URL"
-        echo ""
-        echo "🔑 Mật khẩu: 12345678"
-        echo "======================================"
+        echo "================================="
       else
-        echo "❌ Không lấy được link cloudflare"
+        echo "❌ Không lấy được link Cloudflare"
       fi
 
       elapsed=0
       while true; do
-        echo "VPS running: $elapsed min"
+        echo "Android running: $elapsed min"
         elapsed=$((elapsed+1))
         sleep 60
       done
@@ -95,12 +87,12 @@
   idx.previews = {
     enable = true;
     previews = {
-      novnc = {
+      android = {
         manager = "web";
         command = [
           "bash"
           "-lc"
-          "socat TCP-LISTEN:$PORT,fork,reuseaddr TCP:127.0.0.1:10000"
+          "socat TCP-LISTEN:$PORT,fork,reuseaddr TCP:127.0.0.1:6080"
         ];
       };
     };
